@@ -76,3 +76,5 @@ RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cac
 # Expose & default command (use $PORT from host if provided)
 EXPOSE 8080
 CMD ["sh", "-lc", "php artisan migrate --force || true; php artisan serve --host=0.0.0.0 --port=${PORT:-8080}"]
+
+RUN update-ca-certificates
