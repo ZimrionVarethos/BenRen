@@ -1,6 +1,11 @@
+# Dockerfile — fixed for Laravel + Node build (PHP 8.3 + Node 20)
 FROM php:8.3-cli
 
-# Install system dependencies
+ENV DEBIAN_FRONTEND=noninteractive
+ENV COMPOSER_ALLOW_SUPERUSER=1
+WORKDIR /var/www/html
+
+# Install system deps + libssl for pecl + build tools
 RUN apt-get update && apt-get install -y \
     git \
     unzip \
@@ -17,46 +22,56 @@ RUN apt-get update && apt-get install -y \
     gnupg \
     build-essential \
     wget \
+    libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install PHP extensions
-RUN docker-php-ext-install pdo mbstring zip exif pcntl bcmath gd xml
+# Configure and install PHP extensions (configure gd first)
+RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-install pdo mbstring zip exif pcntl bcmath gd xml
 
 # Install pecl extensions (mongodb)
-RUN apt-get update && apt-get install -y libssl-dev && pecl install mongodb && docker-php-ext-enable mongodb && rm -rf /var/lib/apt/lists/*
+RUN pecl install mongodb \
+    && docker-php-ext-enable mongodb
 
 # Install Composer
 RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
 
-# node 20
+# Install Node 20 (no npm upgrade)
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs \
+    && apt-get update && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Create working directory
-WORKDIR /var/www/html
+# ---------------------------
+# Build steps (cache-friendly)
+# ---------------------------
 
-# Copy composer files first to leverage Docker cache
+# 1) copy composer files for cache
 COPY composer.json composer.lock ./
 
-# Install PHP dependencies
-RUN composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist
+# 2) copy artisan + bootstrap so composer scripts can run
+#    (this prevents "Could not open input file: artisan")
+COPY artisan ./
+COPY bootstrap ./bootstrap
 
-# Copy package files and install node deps
+# ensure artisan is executable (harmless if already is)
+RUN chmod +x artisan || true
+
+# 3) install php deps (will execute post-autoload scripts now that artisan exists)
+RUN composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist --no-progress
+
+# 4) copy package files and install node deps
 COPY package.json package-lock.json ./
 RUN npm ci --silent
 
-# Copy the rest of the application
+# 5) copy the rest of the application
 COPY . .
 
-# Build assets
+# 6) build frontend assets
 RUN npm run build
 
-# Set permissions for Laravel
+# 7) set permissions
 RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache || true
 
-# Expose port (Render provides $PORT at runtime)
+# Expose & default command (use $PORT from host if provided)
 EXPOSE 8080
-
-# Default command — use PORT env if set by Render
 CMD ["sh", "-lc", "php artisan migrate --force || true; php artisan serve --host=0.0.0.0 --port=${PORT:-8080}"]
