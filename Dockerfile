@@ -1,4 +1,4 @@
-FROM php:8.1-cli
+FROM php:8.3-cli
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -28,8 +28,8 @@ RUN apt-get update && apt-get install -y libssl-dev && pecl install mongodb && d
 # Install Composer
 RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
 
-# Install Node.js (LTS 18) and npm
-RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
+# node 20
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
