@@ -25,7 +25,7 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Configure and install PHP extensions (configure gd first)
+# Configure and install PHP extensions (gd configure first)
 RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install pdo mbstring zip exif pcntl bcmath gd xml
 
@@ -48,28 +48,29 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 # 1) copy composer files for cache
 COPY composer.json composer.lock ./
 
-# 2) copy artisan + bootstrap so composer scripts can run
-#    (this prevents "Could not open input file: artisan")
+# 2) copy artisan + bootstrap so we can run artisan later (but don't run composer scripts yet)
 COPY artisan ./
 COPY bootstrap ./bootstrap
-
-# ensure artisan is executable (harmless if already is)
 RUN chmod +x artisan || true
 
-# 3) install php deps (will execute post-autoload scripts now that artisan exists)
-RUN composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist --no-progress
+# 3) install php deps WITHOUT running scripts (prevents artisan scripts failing because app not there yet)
+RUN composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist --no-scripts --no-progress
 
-# 4) copy package files and install node deps
+# 4) copy package files and install node deps (cache)
 COPY package.json package-lock.json ./
 RUN npm ci --silent
 
-# 5) copy the rest of the application
+# 5) copy the rest of the application (now routes, config, app, etc. exist)
 COPY . .
 
-# 6) build frontend assets
+# 6) run composer autoload dump and run artisan discovery now that whole app exists
+RUN composer dump-autoload --optimize --no-interaction \
+    && php artisan package:discover --ansi || true
+
+# 7) build frontend assets
 RUN npm run build
 
-# 7) set permissions
+# 8) set permissions
 RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache || true
 
 # Expose & default command (use $PORT from host if provided)
